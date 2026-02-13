@@ -6,7 +6,17 @@ from .routers import allocations
 
 from .database import engine, Base
 
-from .routers import users, areas, lines, campaigns, assignments, checklist, answers, neshody, auth
+from .routers import (
+    users,
+    areas,
+    lines,
+    campaigns,
+    assignments,
+    checklist,
+    answers,
+    neshody,
+    auth,
+)
 from .routers import executions
 
 
@@ -27,9 +37,11 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 # Vytvoření tabulek (prozatím – později přejdeme na Alembic)
 Base.metadata.create_all(bind=engine)
 
+
 @app.get("/")
 def root():
     return {"message": "LPA v2 backend running"}
+
 
 # ====== REGISTRACE ROUTERŮ ======
 app.include_router(auth.router, tags=["auth"])
@@ -44,6 +56,3 @@ app.include_router(neshody.router, prefix="/neshody", tags=["neshody"])
 app.include_router(executions.router, prefix="/executions", tags=["executions"])
 app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(allocations.router, prefix="/allocations", tags=["allocations"])
-
-
-

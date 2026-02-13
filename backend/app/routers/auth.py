@@ -2,15 +2,16 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
-from app.auth import (
+from ..auth import (
     get_db,
     verify_password,
     create_access_token,
     get_current_user,
 )
-from app.models import User
+from ..models import User
 
-router = APIRouter()
+router = APIRouter()  # ← Tohle je klíčové!
+
 
 @router.post("/token")
 def login(
@@ -19,8 +20,10 @@ def login(
 ):
     user = db.query(User).filter(User.email == form_data.username).first()
 
-    if not user or not user.password_hash or not verify_password(
-        form_data.password, user.password_hash
+    if (
+        not user
+        or not user.password_hash
+        or not verify_password(form_data.password, user.password_hash)
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

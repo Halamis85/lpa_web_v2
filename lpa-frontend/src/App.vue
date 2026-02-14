@@ -14,6 +14,14 @@
         </router-link>
 
         <router-link
+          to="/nok-audits"
+          class="block px-3 py-2 rounded hover:bg-red-600"
+          active-class="bg-red-600"
+        >
+          🚨 NOK Audity
+        </router-link>
+
+        <router-link
           to="/issues"
           class="block px-3 py-2 rounded hover:bg-blue-600"
           active-class="bg-blue-600"
@@ -155,6 +163,3 @@ const getRoleLabel = (role) => {
   return labels[role] || role
 }
 </script>
-
-
-

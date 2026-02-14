@@ -222,7 +222,7 @@ export default {
 
   methods: {
     async loadAreas() {
-      this.areas = (await api.get("/areas")).data;
+      this.areas = (await api.get("/areas/")).data;
     },
 
     async addArea() {
@@ -268,7 +268,7 @@ export default {
 
     //Uživatele 
     async loadUsers() {
-    this.users = (await api.get("/users")).data;
+    this.users = (await api.get("/users/")).data;
     },
 
     async addUser() {
@@ -296,7 +296,7 @@ export default {
     alert("Hesla byla nastavena = email");
     },
     async loadLines() {
-    const res = await api.get("/lines");
+    const res = await api.get("/lines/");
     this.lines = res.data;
     },
 

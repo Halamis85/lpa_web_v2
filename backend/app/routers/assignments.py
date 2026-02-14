@@ -1,12 +1,23 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from datetime import date
+from datetime import date, timedelta
 
 from ..auth import get_db, get_current_user
-from ..models import User, LpaCampaign, LpaAssignment, Line, ChecklistTemplate, ChecklistCategory, AuditExecution, AuditAnswer, ChecklistQuestion
+from ..models import (
+    User,
+    LpaCampaign,
+    LpaAssignment,
+    Line,
+    ChecklistTemplate,
+    ChecklistCategory,
+    AuditExecution,
+    AuditAnswer,
+    ChecklistQuestion,
+)
 
 router = APIRouter()
+
 
 @router.post("/")
 def create_assignment(
@@ -42,9 +53,7 @@ def create_assignment(
 
     # Najdeme checklist šablonu pro linku
     template = (
-        db.query(ChecklistTemplate)
-        .filter(ChecklistTemplate.line_id == line_id)
-        .first()
+        db.query(ChecklistTemplate).filter(ChecklistTemplate.line_id == line_id).first()
     )
 
     if not template:
@@ -66,6 +75,7 @@ def create_assignment(
     db.commit()
     db.refresh(assignment)
     return assignment
+
 
 @router.get("")
 def list_assignments(
@@ -113,9 +123,7 @@ def get_assignment(
     db: Session = Depends(get_db),
 ):
     assignment = (
-        db.query(LpaAssignment)
-        .filter(LpaAssignment.id == assignment_id)
-        .first()
+        db.query(LpaAssignment).filter(LpaAssignment.id == assignment_id).first()
     )
 
     if not assignment:
@@ -125,6 +133,7 @@ def get_assignment(
         raise HTTPException(status_code=403, detail="Toto přidělení není tvoje")
 
     return assignment
+
 
 @router.post("/{month}/generate-assignments")
 def generate_assignments(
@@ -148,14 +157,11 @@ def generate_assignments(
         raise HTTPException(status_code=400, detail="Neexistují žádné linky")
 
     existing = (
-        db.query(LpaAssignment)
-        .filter(LpaAssignment.campaign_id == campaign.id)
-        .first()
+        db.query(LpaAssignment).filter(LpaAssignment.campaign_id == campaign.id).first()
     )
     if existing:
         raise HTTPException(
-            status_code=400,
-            detail="Přidělení pro tuto kampaň už byla vygenerována"
+            status_code=400, detail="Přidělení pro tuto kampaň už byla vygenerována"
         )
 
     assignments = []
@@ -174,7 +180,7 @@ def generate_assignments(
         if not template:
             raise HTTPException(
                 status_code=400,
-                detail=f"Neexistuje checklist šablona pro linku {line.name}"
+                detail=f"Neexistuje checklist šablona pro linku {line.name}",
             )
 
         assignment = LpaAssignment(
@@ -182,16 +188,18 @@ def generate_assignments(
             auditor_id=auditor.id,
             line_id=line.id,
             template_id=template.id,
-            termin=f"{month}-28",
+            termin=date.fromisoformat(f"{month}-28"),
             status="pending",
         )
 
         db.add(assignment)
-        assignments.append({
-            "line": line.name,
-            "auditor": auditor.jmeno,
-            "template_id": template.id,
-        })
+        assignments.append(
+            {
+                "line": line.name,
+                "auditor": auditor.jmeno,
+                "template_id": template.id,
+            }
+        )
 
     campaign.status = "generated"
     db.commit()
@@ -200,6 +208,7 @@ def generate_assignments(
         "message": "Assignments generated",
         "assignments": assignments,
     }
+
 
 @router.get("/{assignment_id}/report")
 def get_assignment_report(
@@ -241,8 +250,7 @@ def get_assignment_report(
 
     if not execution:
         raise HTTPException(
-            status_code=400,
-            detail="Pro tento assignment zatím neexistuje žádný audit"
+            status_code=400, detail="Pro tento assignment zatím neexistuje žádný audit"
         )
 
     # 4) Načteme otázky + odpovědi
@@ -255,14 +263,8 @@ def get_assignment_report(
             AuditAnswer.odpoved,
             AuditAnswer.picture_url,
         )
-        .join(
-            ChecklistQuestion,
-            ChecklistQuestion.id == AuditAnswer.question_id
-        )
-        .join(
-            ChecklistCategory,
-            ChecklistCategory.id == ChecklistQuestion.category_id
-        )
+        .join(ChecklistQuestion, ChecklistQuestion.id == AuditAnswer.question_id)
+        .join(ChecklistCategory, ChecklistCategory.id == ChecklistQuestion.category_id)
         .filter(AuditAnswer.audit_execution_id == execution.id)
         .order_by(ChecklistQuestion.position)
         .all()
@@ -291,6 +293,7 @@ def get_assignment_report(
         ],
     }
 
+
 @router.post("/{assignment_id}/set-status")
 def set_assignment_status(
     assignment_id: int,
@@ -318,6 +321,7 @@ def set_assignment_status(
     db.commit()
 
     return {"message": f"Stav změněn na {status}"}
+
 
 @router.get("/allocations")
 def list_allocations(
@@ -351,4 +355,3 @@ def list_allocations(
         }
         for r in results
     ]
-

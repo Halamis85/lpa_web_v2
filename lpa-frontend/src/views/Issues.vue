@@ -44,7 +44,7 @@ export default {
 
   methods: {
     async load() {
-      this.issues = (await api.get("/neshody")).data;
+      this.issues = (await api.get("/neshody/")).data;
     },
     async take(id) {
       await api.post(`/neshody/${id}/take`);

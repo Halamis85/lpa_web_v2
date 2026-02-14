@@ -339,7 +339,7 @@ async function loadStats() {
 
 async function loadLines() {
   try {
-    const { data } = await api.get('/lines')
+    const { data } = await api.get('/lines/')
     lines.value = data
   } catch (error) {
     console.error('Chyba při načítání linek:', error)

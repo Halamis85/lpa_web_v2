@@ -20,7 +20,7 @@ from .routers import (
 from .routers import executions
 
 
-app = FastAPI(title="LPA v2 API")
+app = FastAPI(title="LPA v2 API", redirect_slashes=False)
 
 # ---- CORS pro Vue ----
 app.add_middleware(

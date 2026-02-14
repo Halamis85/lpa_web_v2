@@ -1,14 +1,33 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from datetime import datetime, date
+from typing import Optional
+from pydantic import BaseModel
 
 from ..auth import get_db, get_current_user
-from ..models import Neshoda, User, AuditExecution, LpaAssignment, Line, ChecklistCategory, AuditAnswer, ChecklistQuestion
+from ..models import (
+    Neshoda,
+    User,
+    AuditExecution,
+    LpaAssignment,
+    Line,
+    ChecklistCategory,
+    AuditAnswer,
+    ChecklistQuestion,
+)
+from ..email_service import send_issue_assignment_email
 
 router = APIRouter()
 
 
+class AssignSolverRequest(BaseModel):
+    solver_id: int
+    termin: Optional[date] = None
+    poznamka: Optional[str] = None
+
+
 # ======== SEZNAM NESHOD ========
+
 
 @router.get("/")
 def list_neshody(
@@ -36,14 +55,22 @@ def list_neshody(
             "termin": n.termin,
             "line_name": line.name,
             "category_name": cat.name,
-            "picture_url": ans.picture_url if (ans := db.query(AuditAnswer)
-            .filter(AuditAnswer.audit_execution_id == n.audit_execution_id)
-            .first()) else None,
+            "picture_url": (
+                ans.picture_url
+                if (
+                    ans := db.query(AuditAnswer)
+                    .filter(AuditAnswer.audit_execution_id == n.audit_execution_id)
+                    .first()
+                )
+                else None
+            ),
         }
         for n, exec, assign, line, cat in results
     ]
 
+
 # ======== PŘEVZETÍ NESHODY ========
+
 
 @router.post("/{neshoda_id}/take-over")
 def take_over_neshoda(
@@ -71,6 +98,7 @@ def take_over_neshoda(
 
 # ======== ZNÁMÉ ŘEŠENÍ ========
 
+
 @router.post("/{neshoda_id}/known-solution")
 def set_known_solution(
     neshoda_id: int,
@@ -83,7 +111,9 @@ def set_known_solution(
         raise HTTPException(status_code=404, detail="Neshoda nenalezena")
 
     if current.role not in ["solver", "admin"]:
-        raise HTTPException(status_code=403, detail="Jen řešitel může zadat známé řešení")
+        raise HTTPException(
+            status_code=403, detail="Jen řešitel může zadat známé řešení"
+        )
 
     n.status = "known_solution"
     n.known_solution_at = datetime.utcnow()
@@ -98,6 +128,7 @@ def set_known_solution(
 
 # ======== IMPLEMENTACE ŘEŠENÍ ========
 
+
 @router.post("/{neshoda_id}/implement")
 def implement_solution(
     neshoda_id: int,
@@ -110,7 +141,9 @@ def implement_solution(
         raise HTTPException(status_code=404, detail="Neshoda nenalezena")
 
     if current.role not in ["solver", "admin"]:
-        raise HTTPException(status_code=403, detail="Jen řešitel může implementovat řešení")
+        raise HTTPException(
+            status_code=403, detail="Jen řešitel může implementovat řešení"
+        )
 
     n.status = "implemented"
     n.implemented_at = datetime.utcnow()
@@ -123,7 +156,101 @@ def implement_solution(
     return n
 
 
-# ======== přidělit řešitele ========
+# ======== PŘIŘAZENÍ ŘEŠITELE + TERMÍN (auditor/admin) ========
+
+
+@router.post("/{neshoda_id}/assign-solver")
+def assign_solver_with_deadline(
+    neshoda_id: int,
+    data: AssignSolverRequest,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Auditor nebo admin může přiřadit řešitele a termín nápravy s odesláním emailu"""
+
+    # Ověření oprávnění
+    if current.role not in ["auditor", "admin"]:
+        raise HTTPException(403, "Pouze auditor nebo admin může přiřadit řešitele")
+
+    # Najdi neshodu
+    neshoda = db.query(Neshoda).filter(Neshoda.id == neshoda_id).first()
+    if not neshoda:
+        raise HTTPException(404, "Neshoda nenalezena")
+
+    # Ověř, že řešitel existuje a má správnou roli
+    solver = (
+        db.query(User).filter(User.id == data.solver_id, User.role == "solver").first()
+    )
+
+    if not solver:
+        raise HTTPException(400, "Uživatel není řešitel nebo neexistuje")
+
+    # Načti informace pro email
+    execution = (
+        db.query(AuditExecution)
+        .filter(AuditExecution.id == neshoda.audit_execution_id)
+        .first()
+    )
+
+    assignment = None
+    line = None
+    category = None
+
+    if execution:
+        assignment = (
+            db.query(LpaAssignment)
+            .filter(LpaAssignment.id == execution.assignment_id)
+            .first()
+        )
+
+        if assignment:
+            line = db.query(Line).filter(Line.id == assignment.line_id).first()
+            category = (
+                db.query(ChecklistCategory)
+                .filter(ChecklistCategory.id == assignment.category_id)
+                .first()
+            )
+
+    # Přiřaď řešitele a termín
+    neshoda.solver_id = data.solver_id
+    neshoda.termin = data.termin
+    neshoda.status = "assigned"  # Změna stavu na přiřazeno
+    neshoda.assigned_at = datetime.utcnow()
+
+    if data.poznamka:
+        neshoda.poznamka = data.poznamka
+
+    db.commit()
+    db.refresh(neshoda)
+
+    # Odešli email řešiteli
+    try:
+        send_issue_assignment_email(
+            to_email=solver.email,
+            solver_name=solver.jmeno,
+            issue_description=neshoda.popis,
+            line_name=line.name if line else "Neznámá linka",
+            category_name=category.name if category else "Neznámá kategorie",
+            severity=neshoda.zavaznost or "medium",
+            deadline=data.termin.isoformat() if data.termin else "Neurčeno",
+            issue_id=neshoda.id,
+        )
+    except Exception as e:
+        print(f"Chyba při odesílání emailu: {e}")
+        # Email selhal, ale přiřazení proběhlo
+
+    return {
+        "message": "Řešitel úspěšně přiřazen",
+        "neshoda_id": neshoda.id,
+        "solver_name": solver.jmeno,
+        "termin": neshoda.termin,
+        "email_sent": True,
+    }
+
+
+# ======== STARŠÍ ENDPOINT PRO PŘIDĚLENÍ ŘEŠITELE ========
+
+
 @router.post("/{neshoda_id}/assign")
 def assign_solver(
     neshoda_id: int,
@@ -131,6 +258,7 @@ def assign_solver(
     current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Starší endpoint pro přidělení řešitele (bez termínu a emailu)"""
     if current.role not in ["admin", "solver"]:
         raise HTTPException(403, "Nemáš oprávnění")
 
@@ -149,9 +277,16 @@ def assign_solver(
     db.commit()
     return {"message": "Řešitel přidělen"}
 
-# ======== převzetí řešitele ========
+
+# ======== PŘEVZETÍ ŘEŠITELE ========
+
+
 @router.post("/{id}/take")
-def take_issue(id: int, current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def take_issue(
+    id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     issue = db.query(Neshoda).get(id)
 
     if not issue:
@@ -164,7 +299,9 @@ def take_issue(id: int, current: User = Depends(get_current_user), db: Session =
     db.commit()
     return {"ok": True}
 
-# ======== označit vyřešené ========
+
+# ======== OZNAČIT VYŘEŠENÉ ========
+
 
 @router.post("/{neshoda_id}/resolve")
 def resolve_neshoda(
@@ -192,9 +329,16 @@ def resolve_neshoda(
     db.commit()
     return {"message": "Neshoda označena jako vyřešená"}
 
-#================ Uzavření auditorem =============
+
+# ======== UZAVŘENÍ AUDITOREM ========
+
+
 @router.post("/{id}/close")
-def close_issue(id: int, current: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def close_issue(
+    id: int,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     issue = db.query(Neshoda).get(id)
 
     if not issue:
@@ -211,70 +355,18 @@ def close_issue(id: int, current: User = Depends(get_current_user), db: Session 
     return {"ok": True}
 
 
-#================ Přiřazení řešitele + termín (auditor/admin) =============
-from pydantic import BaseModel
-
-class AssignSolverRequest(BaseModel):
-    solver_id: int
-    termin: Optional[date] = None
-    poznamka: Optional[str] = None
-
-@router.post("/{neshoda_id}/assign-solver")
-def assign_solver_with_deadline(
-    neshoda_id: int,
-    data: AssignSolverRequest,
-    current: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Auditor nebo admin může přiřadit řešitele a termín nápravy"""
-    
-    # Ověření oprávnění
-    if current.role not in ["auditor", "admin"]:
-        raise HTTPException(403, "Pouze auditor nebo admin může přiřadit řešitele")
-    
-    # Najdi neshodu
-    neshoda = db.query(Neshoda).filter(Neshoda.id == neshoda_id).first()
-    if not neshoda:
-        raise HTTPException(404, "Neshoda nenalezena")
-    
-    # Ověř, že řešitel existuje a má správnou roli
-    solver = db.query(User).filter(
-        User.id == data.solver_id,
-        User.role == "solver"
-    ).first()
-    
-    if not solver:
-        raise HTTPException(400, "Uživatel není řešitel nebo neexistuje")
-    
-    # Přiřaď řešitele a termín
-    neshoda.solver_id = data.solver_id
-    neshoda.termin = data.termin
-    neshoda.status = "assigned"  # Změna stavu na přiřazeno
-    
-    if data.poznamka:
-        neshoda.poznamka = data.poznamka
-    
-    db.commit()
-    db.refresh(neshoda)
-    
-    return {
-        "message": "Řešitel úspěšně přiřazen",
-        "neshoda_id": neshoda.id,
-        "solver_name": solver.jmeno,
-        "termin": neshoda.termin,
-    }
+# ======== SEZNAM ŘEŠITELŮ ========
 
 
-#================ Seznam řešitelů =============
 @router.get("/solvers")
 def get_solvers(
     current: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Vrátí seznam všech řešitelů pro dropdown"""
-    
+
     solvers = db.query(User).filter(User.role == "solver").all()
-    
+
     return [
         {
             "id": s.id,
@@ -285,7 +377,9 @@ def get_solvers(
     ]
 
 
-#================ Detail neshody s fotkou =============
+# ======== DETAIL NESHODY S FOTKOU ========
+
+
 @router.get("/{neshoda_id}/detail")
 def get_neshoda_detail(
     neshoda_id: int,
@@ -293,47 +387,58 @@ def get_neshoda_detail(
     db: Session = Depends(get_db),
 ):
     """Vrátí detail neshody včetně fotky z auditu"""
-    
+
     neshoda = db.query(Neshoda).filter(Neshoda.id == neshoda_id).first()
     if not neshoda:
         raise HTTPException(404, "Neshoda nenalezena")
-    
+
     # Najdi souvisící execution
-    execution = db.query(AuditExecution).filter(
-        AuditExecution.id == neshoda.audit_execution_id
-    ).first()
-    
+    execution = (
+        db.query(AuditExecution)
+        .filter(AuditExecution.id == neshoda.audit_execution_id)
+        .first()
+    )
+
     if not execution:
         raise HTTPException(404, "Audit execution nenalezen")
-    
+
     # Najdi assignment pro kontext
-    assignment = db.query(LpaAssignment).filter(
-        LpaAssignment.id == execution.assignment_id
-    ).first()
-    
+    assignment = (
+        db.query(LpaAssignment)
+        .filter(LpaAssignment.id == execution.assignment_id)
+        .first()
+    )
+
     # Najdi linku a kategorii
-    line = db.query(Line).filter(Line.id == assignment.line_id).first() if assignment else None
-    category = db.query(ChecklistCategory).filter(
-        ChecklistCategory.id == assignment.category_id
-    ).first() if assignment else None
-    
+    line = (
+        db.query(Line).filter(Line.id == assignment.line_id).first()
+        if assignment
+        else None
+    )
+    category = (
+        db.query(ChecklistCategory)
+        .filter(ChecklistCategory.id == assignment.category_id)
+        .first()
+        if assignment
+        else None
+    )
+
     # Najdi NOK odpovědi s fotkami pro tento execution
-    nok_answers = db.query(
-        AuditAnswer,
-        ChecklistQuestion.question_text
-    ).join(
-        ChecklistQuestion,
-        AuditAnswer.question_id == ChecklistQuestion.id
-    ).filter(
-        AuditAnswer.audit_execution_id == neshoda.audit_execution_id,
-        AuditAnswer.odpoved == "NOK"
-    ).all()
-    
+    nok_answers = (
+        db.query(AuditAnswer, ChecklistQuestion.question_text)
+        .join(ChecklistQuestion, AuditAnswer.question_id == ChecklistQuestion.id)
+        .filter(
+            AuditAnswer.audit_execution_id == neshoda.audit_execution_id,
+            AuditAnswer.odpoved == "NOK",
+        )
+        .all()
+    )
+
     # Najdi řešitele, pokud je přiřazen
     solver = None
     if neshoda.solver_id:
         solver = db.query(User).filter(User.id == neshoda.solver_id).first()
-    
+
     return {
         "id": neshoda.id,
         "popis": neshoda.popis,
@@ -341,11 +446,15 @@ def get_neshoda_detail(
         "zavaznost": neshoda.zavaznost,
         "status": neshoda.status,
         "termin": neshoda.termin,
-        "solver": {
-            "id": solver.id,
-            "jmeno": solver.jmeno,
-            "email": solver.email
-        } if solver else None,
+        "solver": (
+            {
+                "id": solver.id,
+                "jmeno": solver.jmeno,
+                "email": solver.email,
+            }
+            if solver
+            else None
+        ),
         "audit_info": {
             "execution_id": execution.id,
             "started_at": execution.started_at,
@@ -358,5 +467,5 @@ def get_neshoda_detail(
                 "picture_url": answer.picture_url,
             }
             for answer, question_text in nok_answers
-        ]
+        ],
     }

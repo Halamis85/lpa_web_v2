@@ -69,12 +69,12 @@
                 </select>
               </td>
               <td>
-                <button
-                  @click="initPasswords"
-                  class="btn-secondary"
-                >
-                  🔐 Reset hesel
-                </button>
+                 <button
+                    @click="resetPassword(u)"
+                    class="px-3 py-1 text-sm text-white bg-orange-600 rounded hover:bg-orange-700"
+                    >
+                        🔐 Reset hesla
+                  </button>
               </td>
             </tr>
           </tbody>
@@ -260,6 +260,20 @@ export default {
       await this.loadQuestions();
     },
 
+    async resetPassword(user) {
+      if (!confirm(`Opravdu chcete resetovat heslo pro ${user.jmeno}?`)) {
+      return;
+      }
+
+      try {
+      const res = await api.post(`/users${user.id}/reset-password`);
+      alert(`✅ ${res.data.message}`);
+    } catch (err) {
+      const errorMsg = err.response?.data?.detail || "Chyba při resetu hesla";
+      alert("❌ " + errorMsg);
+    }
+  },
+
     async loadQuestions() {
       this.questions = (
         await api.get(`/checklist/${this.selectedTemplate.id}/questions`)
@@ -268,26 +282,37 @@ export default {
 
     //Uživatele 
     async loadUsers() {
-    this.users = (await api.get("/users/")).data;
+    this.users = (await api.get("/users")).data;
     },
 
     async addUser() {
-    if (!this.newName || !this.newEmail) return;
+    if (!this.newName || !this.newEmail) {
+      alert("Vyplňte jméno a email");
+      return;
+    }
 
+    try {
     await api.post(
-    `/users?jmeno=${encodeURIComponent(this.newName)}&email=${encodeURIComponent(
-      this.newEmail
-    )}&role=${this.newRole}`
+      `/users?jmeno=${encodeURIComponent(this.newName)}&email=${encodeURIComponent(
+        this.newEmail
+      )}&role=${this.newRole}`
     );
 
+    alert("✅ Uživatel vytvořen a email s heslem byl odeslán!");
     this.newName = "";
     this.newEmail = "";
     this.newRole = "auditor";
     await this.loadUsers();
-    },
+    
+  } catch (err) {
+    const errorMsg = err.response?.data?.detail || "Chyba při vytváření uživatele";
+    alert("❌ " + errorMsg);
+    console.error("Error creating user:", err);
+    }
+  },
 
     async updateRole(user) {
-    await api.patch(`/users/${user.id}/role?role=${user.role}`);
+    await api.patch(`/users${user.id}/role?role=${user.role}`);
     await this.loadUsers();
     },
 
@@ -406,13 +431,24 @@ export default {
   },
 
     async autoGenerateMonth() {
-    try {
-      const res = await api.post("/campaigns/auto-generate-current");
-      alert(res.data.message || "Kampaň vytvořena a audity rozlosovány");
-    } catch (err) {
-      alert(err.response?.data?.detail || "Chyba při generování kampaně");
+  try {
+    const res = await api.post("/campaigns/auto-generate-current");
+    
+    const msg = res.data.message || "Kampaň vytvořena";
+    const emails = res.data.emails_sent || 0;
+    const failed = res.data.emails_failed || 0;
+    
+    let alertMsg = `✅ ${msg}\n\n`;
+    alertMsg += `📧 Emaily odeslané: ${emails}\n`;
+    if (failed > 0) {
+      alertMsg += `❌ Emaily selhaly: ${failed}`;
     }
-    }
+    
+    alert(alertMsg);
+  } catch (err) {
+    alert(err.response?.data?.detail || "Chyba při generování kampaně");
   }
 }
+  },
+};
 </script>

@@ -53,7 +53,14 @@
         >
           📝 Provést audit
         </router-link>
-      </nav>
+        
+        <router-link
+          to="/statistics"
+          class="block px-3 py-2 rounded hover:bg-blue-600"
+          active-class="bg-blue-600">
+          📊 Statistiky
+        </router-link>
+        </nav>
 
       <!-- Info uživatele -->
       <div class="pt-4 mt-4 border-t border-gray-700">

@@ -355,3 +355,106 @@ def list_allocations(
         }
         for r in results
     ]
+
+
+@router.get("/allocations/by-month/{month}")
+def get_allocations_by_month(
+    month: str,
+    current: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Vrátí detailní přehled všech přidělení pro daný měsíc se stavem splnitelnosti"""
+    from datetime import date
+
+    # Kontrola práv - pouze admin a auditor
+    if current.role not in ["admin", "auditor"]:
+        raise HTTPException(403, "Nemáte oprávnění k zobrazení rozlosování")
+
+    results = (
+        db.query(
+            LpaAssignment.id.label("assignment_id"),
+            User.jmeno.label("auditor_name"),
+            User.id.label("auditor_id"),
+            Line.name.label("line_name"),
+            ChecklistCategory.name.label("category_name"),
+            LpaCampaign.month,
+            LpaAssignment.termin,
+            LpaAssignment.status,
+            LpaAssignment.datum_provedeni,
+            AuditExecution.id.label("execution_id"),
+            AuditExecution.finished_at,
+        )
+        .join(User, LpaAssignment.auditor_id == User.id)
+        .join(Line, LpaAssignment.line_id == Line.id)
+        .join(ChecklistCategory, LpaAssignment.category_id == ChecklistCategory.id)
+        .join(LpaCampaign, LpaAssignment.campaign_id == LpaCampaign.id)
+        .outerjoin(AuditExecution, LpaAssignment.id == AuditExecution.assignment_id)
+        .filter(LpaCampaign.month == month)
+        .order_by(User.jmeno, Line.name)
+        .all()
+    )
+
+    today = date.today()
+    allocations_list = []
+
+    for r in results:
+        # Určení stavu splnitelnosti
+        completion_status = "pending"  # výchozí
+        is_overdue = False
+
+        if r.status == "done":
+            completion_status = "completed"
+        elif r.status == "in_progress":
+            completion_status = "in_progress"
+        elif r.termin and r.termin < today:
+            completion_status = "overdue"
+            is_overdue = True
+
+        allocations_list.append(
+            {
+                "assignment_id": r.assignment_id,
+                "auditor_name": r.auditor_name,
+                "auditor_id": r.auditor_id,
+                "line_name": r.line_name,
+                "category_name": r.category_name,
+                "month": r.month,
+                "termin": r.termin.isoformat() if r.termin else None,
+                "status": r.status,
+                "completion_status": completion_status,
+                "is_overdue": is_overdue,
+                "datum_provedeni": (
+                    r.datum_provedeni.isoformat() if r.datum_provedeni else None
+                ),
+                "execution_id": r.execution_id,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            }
+        )
+
+    # Pokud je uživatel auditor, zobraz pouze jeho přidělení
+    if current.role == "auditor":
+        allocations_list = [
+            a for a in allocations_list if a["auditor_id"] == current.id
+        ]
+
+    # Statistiky
+    total = len(allocations_list)
+    completed = len(
+        [a for a in allocations_list if a["completion_status"] == "completed"]
+    )
+    in_progress = len(
+        [a for a in allocations_list if a["completion_status"] == "in_progress"]
+    )
+    overdue = len([a for a in allocations_list if a["is_overdue"]])
+    pending = total - completed - in_progress - overdue
+
+    return {
+        "allocations": allocations_list,
+        "stats": {
+            "total": total,
+            "completed": completed,
+            "in_progress": in_progress,
+            "pending": pending,
+            "overdue": overdue,
+            "completion_rate": round((completed / total * 100), 1) if total > 0 else 0,
+        },
+    }

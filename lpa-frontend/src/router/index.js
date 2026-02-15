@@ -11,6 +11,7 @@ import Allocations from "../views/Allocations.vue"
 import Issues from "@/views/Issues.vue"
 import NokAuditsList from "@/views/NokAuditsList.vue"
 import NokAuditDetail from "@/views/NokAuditDetail.vue"
+import Statistics from '../views/Statistics.vue'
 
 const routes = [
   {
@@ -77,6 +78,12 @@ const routes = [
     path: "/nok-audits/:id",
     name: "NokAuditDetail",
     component: NokAuditDetail,
+    meta: { requiresAuth: true }
+  },
+  {
+    path: "/statistics",
+    name: "Statistics",
+    component: Statistics,
     meta: { requiresAuth: true }
   },
 ]

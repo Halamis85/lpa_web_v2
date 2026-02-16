@@ -4,6 +4,7 @@ from sqlalchemy.orm import relationship
 
 from .database import Base
 
+
 # ===========================
 # USERS
 # ===========================
@@ -13,8 +14,26 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     jmeno = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
-    role = Column(String, nullable=False)  # lpa_auditor / solver / admin
+    role = Column(String, nullable=False)
     password_hash = Column(String, nullable=True)
+
+    # ✅ PŘIDEJTE TYTO DVA SLOUPCE
+    roles = Column(String, nullable=True)
+    force_password_change = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True)
+
+    # ✅ PŘIDEJTE TYTO DVĚ METODY
+    def has_role(self, role_name: str) -> bool:
+        """Zkontroluje, zda má uživatel danou roli"""
+        if not self.roles:
+            return self.role == role_name
+        return role_name in self.roles.split(",")
+
+    def get_roles_list(self) -> list:
+        """Vrátí seznam všech rolí"""
+        if not self.roles:
+            return [self.role]
+        return self.roles.split(",")
 
 
 # ===========================
@@ -81,6 +100,7 @@ class ChecklistTemplate(Base):
     name = Column(String, nullable=False)
     line_id = Column(Integer, ForeignKey("lines.id"), nullable=False)
 
+
 # ===========================
 # CHECKLIST – kategorie
 # ===========================
@@ -89,6 +109,7 @@ class ChecklistCategory(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, unique=True)
+
 
 # ===========================
 # CHECKLIST – OTÁZKY
@@ -129,7 +150,9 @@ class Neshoda(Base):
     popis = Column(String, nullable=False)
     zavaznost = Column(String)  # low / medium / high
 
-    status = Column(String, default="open")  # open / assigned / in_progress / resolved / closed
+    status = Column(
+        String, default="open"
+    )  # open / assigned / in_progress / resolved / closed
 
     solver_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     termin = Column(Date, nullable=True)
@@ -142,12 +165,12 @@ class Neshoda(Base):
 
     poznamka = Column(String, nullable=True)
 
-#============================================
-#Výrobní linky 
-#===========================================
+
+# ============================================
+# Výrobní linky
+# ===========================================
 class Line(Base):
     __tablename__ = "lines"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, nullable=False)
-

@@ -44,7 +44,7 @@ def root():
 
 
 # ====== REGISTRACE ROUTERŮ ======
-app.include_router(auth.router, tags=["auth"])
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(users.router, prefix="/users", tags=["users"])
 app.include_router(areas.router, prefix="/areas", tags=["areas"])
 app.include_router(lines.router, prefix="/lines", tags=["lines"])

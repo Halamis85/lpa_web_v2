@@ -1,54 +1,56 @@
 <template>
-  <div class="flex items-center justify-center min-h-screen bg-gray-100">
-    <div class="w-full max-w-md p-8 bg-white shadow-lg rounded-xl">
-      <h2 class="mb-2 text-2xl font-bold text-center">LPA v2</h2>
-      <p class="mb-6 text-center text-gray-500">Přihlášení do systému</p>
+  <div class="flex items-center justify-center min-h-screen bg-linear-to-br from-blue-50 to-blue-100">
+    <div class="w-full max-w-md p-8 bg-white rounded-lg shadow-xl">
+      <div class="mb-8 text-center">
+        <div class="mb-4 text-6xl">🏭</div>
+        <h1 class="text-3xl font-bold text-gray-800">LPA Systém</h1>
+        <p class="text-gray-600">Přihlášení do systému</p>
+      </div>
 
-      <div class="space-y-4">
+      <form @submit.prevent="login" class="space-y-6">
         <div>
-          <label class="block text-sm font-medium text-gray-700">Email</label>
+          <label class="block mb-2 text-sm font-medium text-gray-700">
+            Email
+          </label>
           <input
             v-model="email"
             type="email"
-            placeholder="vas@email.cz"
-            @keyup.enter="login"
-            class="w-full p-2 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+            required
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            placeholder="vas.email@firma.cz"
           />
         </div>
 
         <div>
-          <label class="block text-sm font-medium text-gray-700">Heslo</label>
+          <label class="block mb-2 text-sm font-medium text-gray-700">
+            Heslo
+          </label>
           <input
             v-model="password"
             type="password"
+            required
+            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             placeholder="••••••••"
-            @keyup.enter="login"
-            class="w-full p-2 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
           />
         </div>
 
-        <button
-          @click="login"
-          :disabled="loading"
-          class="w-full py-2 font-semibold text-white transition bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {{ loading ? 'Přihlašování...' : 'Přihlásit se' }}
-        </button>
-
-        <p v-if="error" class="mt-3 text-sm text-center text-red-600">
+        <div v-if="error" class="p-3 text-sm text-red-700 bg-red-100 rounded-lg">
           {{ error }}
-        </p>
-      </div>
+        </div>
 
-      <!-- Info o výchozích účtech -->
-      <div class="p-4 mt-6 rounded-lg bg-blue-50">
-        <p class="mb-2 text-xs text-gray-600">
-          <strong>Výchozí přihlašovací údaje:</strong>
-        </p>
-        <p class="text-xs text-gray-600">
-          Email: admin@lpa.local<br>
-          Heslo: admin
-        </p>
+        <button
+          type="submit"
+          :disabled="loading"
+          class="w-full px-4 py-3 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+        >
+          <span v-if="loading">🔄 Přihlašuji...</span>
+          <span v-else>🔓 Přihlásit se</span>
+        </button>
+      </form>
+
+      <div class="mt-6 text-center text-sm text-gray-600">
+        <p>Máte potíže s přihlášením?</p>
+        <p class="mt-1">Kontaktujte administrátora systému</p>
       </div>
     </div>
   </div>
@@ -58,37 +60,63 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import api from "@/api"
 
 const router = useRouter()
 const userStore = useUserStore()
 
-const email = ref("")
-const password = ref("")
-const error = ref(null)
+const email = ref('')
+const password = ref('')
+const error = ref('')
 const loading = ref(false)
 
-const login = async () => {
-  error.value = null
+async function login() {
+  error.value = ''
   loading.value = true
 
   try {
-    const form = new URLSearchParams()
-    form.append("username", email.value)
-    form.append("password", password.value)
+    const formData = new FormData()
+    formData.append('username', email.value)
+    formData.append('password', password.value)
 
-    const res = await api.post("/token", form)
-    
-    localStorage.setItem("access_token", res.data.access_token)
-    
-    // Načti informace o uživateli
-    await userStore.fetchUser()
-    
-    // Přesměruj na dashboard
-    router.push("/dashboard")
-  } catch (e) {
-    error.value = "Neplatné přihlašovací údaje"
-    console.error('Login error:', e)
+    const response = await fetch('http://localhost:8000/auth/token', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error('Nesprávný email nebo heslo')
+    }
+
+    const data = await response.json()
+
+    // Ulož token a uživatelská data
+    localStorage.setItem('access_token', data.access_token)
+    localStorage.setItem('user_id', data.user.id)
+    localStorage.setItem('user_name', data.user.jmeno)
+    localStorage.setItem('user_email', data.user.email)
+    localStorage.setItem('user_role', data.user.role)
+    localStorage.setItem('user_roles', JSON.stringify(data.user.roles))
+
+    userStore.login(data.user)
+
+    // ⚠️ KONTROLA FORCE PASSWORD CHANGE
+    if (data.force_password_change) {
+      // Přesměruj na stránku pro změnu hesla
+      router.push('/change-password')
+      return
+    }
+
+    // Normální přesměrování podle role
+    if (data.user.roles.includes('admin')) {
+      router.push('/admin')
+    } else if (data.user.roles.includes('solver')) {
+      router.push('/neshody')
+    } else {
+      router.push('/home')
+    }
+  } catch (err) {
+    error.value = err.message || 'Chyba při přihlašování'
+    console.error('Login error:', err)
   } finally {
     loading.value = false
   }

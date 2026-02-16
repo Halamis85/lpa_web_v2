@@ -12,11 +12,16 @@ export const useUserStore = defineStore('user', () => {
   const userEmail = computed(() => user.value?.email || '')
   const userRole = computed(() => user.value?.role || '')
 
+  // ✅ NOVÁ METODA: login
+  function login(userData) {
+    user.value = userData
+  }
+
   async function fetchUser() {
     loading.value = true
     error.value = null
     try {
-      const response = await api.get('/me')
+      const response = await api.get('/auth/me')
       user.value = response.data
     } catch (err) {
       error.value = err.message
@@ -24,6 +29,11 @@ export const useUserStore = defineStore('user', () => {
       // Pokud token není validní, odstraň ho
       if (err.response?.status === 401) {
         localStorage.removeItem('access_token')
+        localStorage.removeItem('user_id')
+        localStorage.removeItem('user_name')
+        localStorage.removeItem('user_email')
+        localStorage.removeItem('user_role')
+        localStorage.removeItem('user_roles')
       }
     } finally {
       loading.value = false
@@ -33,6 +43,11 @@ export const useUserStore = defineStore('user', () => {
   function logout() {
     user.value = null
     localStorage.removeItem('access_token')
+    localStorage.removeItem('user_id')
+    localStorage.removeItem('user_name')
+    localStorage.removeItem('user_email')
+    localStorage.removeItem('user_role')
+    localStorage.removeItem('user_roles')
   }
 
   return {
@@ -43,6 +58,7 @@ export const useUserStore = defineStore('user', () => {
     userName,
     userEmail,
     userRole,
+    login,
     fetchUser,
     logout
   }

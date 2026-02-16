@@ -12,6 +12,7 @@ import Issues from "@/views/Issues.vue"
 import NokAuditsList from "@/views/NokAuditsList.vue"
 import NokAuditDetail from "@/views/NokAuditDetail.vue"
 import Statistics from '../views/Statistics.vue'
+import ChangePassword from '@/views/ChangePassword.vue'
 
 const routes = [
   {
@@ -19,6 +20,12 @@ const routes = [
     name: "Login",
     component: Login,
     meta: { requiresAuth: false }
+  },
+  {
+    path: '/change-password',
+    name: 'ChangePassword',
+    component: ChangePassword,
+    meta: { requiresAuth: true }
   },
   {
     path: "/dashboard",
@@ -94,42 +101,20 @@ const router = createRouter({
 })
 
 // Navigation guard
-router.beforeEach(async (to, from, next) => {
-  const userStore = useUserStore()
+router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('access_token')
+  const userRole = localStorage.getItem('user_role')
 
-  // Pokud jde na login a je přihlášený, přesměruj na dashboard
-  if (to.path === '/' && token) {
-    // Pokud ještě nemáme user data, načti je
-    if (!userStore.user) {
-      await userStore.fetchUser()
-    }
-    if (userStore.isAuthenticated) {
-      return next('/dashboard')
-    }
+  // Pokud stránka vyžaduje přihlášení
+  if (to.meta.requiresAuth && !token) {
+    next('/')
+    return
   }
 
-  // Kontrola autentizace
-  if (to.meta.requiresAuth) {
-    if (!token) {
-      return next('/')
-    }
-
-    // Načíst user data, pokud ještě nejsou
-    if (!userStore.user) {
-      await userStore.fetchUser()
-    }
-
-    // Pokud se načtení nezdařilo (např. neplatný token)
-    if (!userStore.isAuthenticated) {
-      return next('/')
-    }
-
-    // Kontrola admin oprávnění
-    if (to.meta.requiresAdmin && userStore.userRole !== 'admin') {
-      alert('Nemáte oprávnění pro přístup k této stránce')
-      return next('/dashboard')
-    }
+  // Pokud stránka vyžaduje admin práva
+  if (to.meta.requiresAdmin && userRole !== 'admin') {
+    next('/home')
+    return
   }
 
   next()
